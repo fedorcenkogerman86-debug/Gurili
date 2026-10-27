@@ -1,0 +1,223 @@
+# app.py — Головоломка "Молчание" (Cicada-style)
+# Всё в одном файле: сервер, HTML, CSS, проверка ответов.
+# Запуск: pip install flask && python app.py
+
+from flask import Flask, request, render_template_string, redirect
+
+app = Flask(__name__)
+
+# ============================================================
+# ОТВЕТЫ ХРАНЯТСЯ ТОЛЬКО ЗДЕСЬ, НА СЕРВЕРЕ.
+# В HTML/JS их НЕТ. Участник не может подсмотреть.
+# ============================================================
+CORRECT_ANSWER = "7"
+
+# ============================================================
+# ГЛАВНАЯ СТРАНИЦА — УРОВЕНЬ 1
+# ============================================================
+LEVEL1_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>.</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Glagolitic&display=swap" rel="stylesheet">
+    <style>
+        body {
+            background: #000;
+            color: #fff;
+            font-family: 'Noto Sans Glagolitic', monospace;
+            text-align: center;
+            padding-top: 15vh;
+            font-size: 20px;
+            line-height: 2;
+        }
+        p { margin: 10px 0; }
+        input {
+            background: #111;
+            color: #fff;
+            border: 1px solid #333;
+            padding: 10px;
+            width: 220px;
+            text-align: center;
+            font-family: monospace;
+            font-size: 16px;
+            margin-top: 20px;
+        }
+        button {
+            background: #222;
+            color: #fff;
+            border: 1px solid #444;
+            padding: 10px 30px;
+            font-family: monospace;
+            font-size: 16px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        button:hover { background: #333; }
+        .error { color: #f00; margin-top: 20px; font-size: 16px; }
+        .hidden-link {
+            color: #000;
+            text-decoration: none;
+            font-size: 1px;
+        }
+    </style>
+</head>
+<body>
+    <p>ⰏⰑⰎⰝⰀⰐⰉⰅ</p>
+    <p>ⰑⰐ ⰒⰓⰉⰞⰅⰎ, ⰍⰑⰃⰄⰀ ⰏⰑⰎⰝⰀⰎⰉ.</p>
+    <p>ⰕⰅⰐⰠ ⰅⰃⰑ — ⰐⰀ ⰔⰕⰅⰐⰅ, ⰐⰑ ⰔⰕⰅⰐⰫ ⰐⰅⰕ.</p>
+    <p>ⰝⰉⰔⰎⰑ, ⰍⰑⰕⰑⰓⰑⰅ ⰐⰅ ⰔⰍⰀⰈⰀⰐⰑ, — ⰍⰎⰠⰝ.</p>
+    <p>ⰂⰂⰅⰄⰉ ⰅⰃⰑ.</p>
+
+    <form method="POST">
+        <input type="text" name="answer" placeholder="..." autocomplete="off">
+        <br>
+        <button type="submit">→</button>
+    </form>
+
+    {% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+    <!-- 
+    ============================================================
+    СКРЫТЫЕ ПОДСКАЗКИ (в исходном коде страницы)
+    ============================================================
+    
+    1. ОШИБКИ В ГЛАГОЛИЦЕ:
+       В тексте заменены 5 букв. Собери их по порядку:
+       Ⱂ, Ⱃ, Ⰹ, Ⰰ, Ⰹ → UMBRA (лат. "тень")
+    
+    2. ГРАВЮРА:
+       https://upload.wikimedia.org/wikipedia/commons/8/8e/Melencolia_I.jpg
+       Ищи квадрат. Угол — ключ.
+    
+    3. АУДИО (спектрограмма):
+       /static/hidden.wav
+       Открой в Audacity → Spectrogram.
+    
+    ============================================================
+    -->
+
+    <!-- Ложный путь (невидимая ссылка) -->
+    <a href="/wrong" class="hidden-link">.</a>
+
+    <!-- Аудио-файл (невидимый плеер) -->
+    <audio src="/static/hidden.wav" preload="none" style="display:none;"></audio>
+</body>
+</html>
+"""
+
+# ============================================================
+# ТУПИК (ложный путь) — с подсказкой
+# ============================================================
+WRONG_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>.</title>
+    <style>
+        body {
+            background: #000;
+            color: #fff;
+            font-family: monospace;
+            text-align: center;
+            padding-top: 20vh;
+            font-size: 18px;
+            line-height: 2;
+        }
+        a { color: #fff; text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <p>Ты выбрал тень.</p>
+    <p>Но тень — не стена.</p>
+    <p>Вернись. Ищи свет.</p>
+    <br>
+    <a href="/">← вернуться</a>
+</body>
+</html>
+"""
+
+# ============================================================
+# СЛЕДУЮЩИЙ УРОВЕНЬ (заглушка)
+# ============================================================
+SHADOW_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>.</title>
+    <style>
+        body {
+            background: #000;
+            color: #fff;
+            font-family: 'Noto Sans Glagolitic', monospace;
+            text-align: center;
+            padding-top: 20vh;
+            font-size: 20px;
+            line-height: 2;
+        }
+    </style>
+</head>
+<body>
+    <p>ⰕⰟ ⰒⰓⰑⰞⰅⰎ.</p>
+    <p>ⰐⰑ ⰝⰕⰑ ⰄⰀⰎⰠⰞⰅ?</p>
+    <p style="color:#333;font-size:14px;">(Уровень 2 — в разработке)</p>
+</body>
+</html>
+"""
+
+# ============================================================
+# МАРШРУТЫ
+# ============================================================
+
+@app.route('/', methods=['GET', 'POST'])
+def level1():
+    if request.method == 'POST':
+        ans = request.form.get('answer', '').strip().lower()
+
+        # Правильный ответ
+        if ans == CORRECT_ANSWER:
+            return redirect('/shadow')
+
+        # Ложные следы
+        elif ans == '862':
+            return render_template_string(
+                LEVEL1_HTML,
+                error="ⰃⰑⰄ ⰔⰍⰀⰈⰀⰐ. ⰝⰉⰔⰎⰑ — ⰐⰅⰕ."
+            )
+        elif ans == 'рюрик':
+            return render_template_string(
+                LEVEL1_HTML,
+                error="ⰉⰏⰡ ⰐⰀⰈⰂⰀⰐⰑ. ⰕⰅⰐⰠ — ⰐⰅⰕ."
+            )
+        elif ans == 'umbra':
+            return render_template_string(
+                LEVEL1_HTML,
+                error="UMBRA — ключ. Но число — не оно."
+            )
+        else:
+            return render_template_string(
+                LEVEL1_HTML,
+                error="ⰐⰅ ⰕⰑ. ⰏⰑⰎⰝⰀⰐⰉⰅ — ⰕⰑⰆⰅ ⰑⰕⰂⰅⰕ."
+            )
+
+    return render_template_string(LEVEL1_HTML, error=None)
+
+
+@app.route('/wrong')
+def wrong():
+    return render_template_string(WRONG_HTML)
+
+
+@app.route('/shadow')
+def shadow():
+    return render_template_string(SHADOW_HTML)
+
+
+# ============================================================
+# ЗАПУСК
+# ============================================================
+if __name__ == '__main__':
+    app.run(debug=True, host='0.0.0.0', port=5000)
